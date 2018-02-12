@@ -314,7 +314,7 @@ CC = gcc
 CCDEPMODE = depmode=gcc3
 CFLAGS = -g -O2
 CPP = gcc -E
-CPPFLAGS =  -I/usr/include
+CPPFLAGS =  -I/usr/include -Wno-sign-compare -Wno-unused-variable -Wno-unused-parameter -std=c++11
 CXX = g++
 CXXCPP = g++ -E
 CXXDEPMODE = depmode=gcc3
