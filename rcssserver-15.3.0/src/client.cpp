@@ -61,6 +61,189 @@
 #include <sys/types.h> // select()
 #endif
 
+//------------------------------------------------------------------------------
+
+#include <math.h>
+
+#define PI 3.1415927
+
+#include <vector>
+
+using namespace std;
+
+// S-expressions are nested lists of symbols
+// Sexpr class represents a tree structure
+// everything is a leaf node (string) or an internal node, which is list of pointers to subtrees
+// right now, this code assumes input is synactically legal, and doesn't do any error checking
+// one should probably implement destructors to avoid memory leaks...
+
+class Sexpr {
+public:
+  char* leaf; // set to NULL if not a leaf node
+  int start,next; // index in token list
+  vector<Sexpr*> children;
+
+  Sexpr(vector<char*>* toks,int i)
+  {
+    start = i;
+    if (toks->at(i)[0]=='(')
+    {
+      leaf = NULL;
+      int j=i+1;
+      while (toks->at(j)[0]!=')')
+      {
+        Sexpr* child=new Sexpr(toks,j);
+	children.push_back(child);
+	j = child->next;
+      }
+      next = j+1;
+    }
+    else
+    {
+      leaf = toks->at(i);
+      next = i+1;
+    }
+  }
+  
+  void print_indented(int indent)
+  {
+    if (leaf!=NULL)
+    {
+      for (int i=0 ; i<indent ; i++) printf(" ");
+      printf("%s\n",leaf);
+    }
+    else for (int i=0 ; i<children.size() ; i++) children[i]->print_indented(indent+2);
+  }
+
+  void print_parenthesized()
+  {
+    if (leaf!=NULL) printf("%s ",leaf);
+    else
+    {
+      printf("(");
+      for (int i=0 ; i<children.size() ; i++) children[i]->print_parenthesized();
+      printf(") ");
+    }
+  }
+};
+
+vector<char*>* tokenize(char* s)
+{
+  int i=0,n=strlen(s);
+  vector<char*>* toks = new vector<char*>();
+  while (i<n)
+  {
+    if (s[i]=='(' || s[i]==')') { toks->push_back(strndup(s+i,1)); i++; }
+    else if (s[i]==' ') i++;
+    else if (s[i]!=' ')
+    {
+      int j=i;
+      while (j<n && s[j]!='(' && s[j]!=')' && s[j]!=' ') j++;
+      if (j==n) break;
+      toks->push_back(strndup(s+i,j-i));
+      i = j;
+    }
+  }
+  return toks;
+}
+
+// fills in vals for x,y,dir; returns -1 if fails for any reason
+
+int infer_player_loc(Sexpr* expr,float* x,float* y,float* dir)
+{
+  if (strcmp(expr->children[0]->leaf,"see")!=0) return -1;
+  typedef vector<float> socFlag; // x,y,dist,dir
+  vector<socFlag> flags;
+
+  // loop through objects and find border flags...
+  for (int i=2 ; i<expr->children.size() ; i++) 
+  {
+    printf("see: time=%s object=",expr->children[1]->leaf);
+    expr->children[i]->print_parenthesized();
+    Sexpr* obj=expr->children[i]->children[0];
+    float dist=atof(expr->children[i]->children[1]->leaf);
+    float dir=atof(expr->children[i]->children[2]->leaf);
+
+    socFlag flag;
+    if (obj->children[0]->leaf[0]=='f')
+    {
+/* beware, if you want to include the cetner flag,
+          you might have to choose the farther solution      
+      if (0 && obj->children.size()==2 && obj->children[1]->leaf[0]=='c')
+      {
+          printf(" * center flag");
+          flag.push_back(0); flag.push_back(0); flag.push_back(dist); flag.push_back(dir);
+          flags.push_back(flag);
+      }
+*/
+      if (obj->children.size()==4)
+        if (strchr("lrtb",obj->children[1]->leaf[0])!=NULL)
+        {
+          float p=999,q=999,z=atof((char*)(obj->children[3]->leaf));
+	  if (obj->children[1]->leaf[0]=='l') p = -60;
+	  if (obj->children[1]->leaf[0]=='r') p = 60;
+	  if (obj->children[1]->leaf[0]=='t') q = 40;
+	  if (obj->children[1]->leaf[0]=='b') q = -40;
+	  if (obj->children[2]->leaf[0]=='l') p = -z;
+	  if (obj->children[2]->leaf[0]=='r') p = z;
+	  if (obj->children[2]->leaf[0]=='t') q = z;
+	  if (obj->children[2]->leaf[0]=='b') q = -z;
+          printf(" * flag, coords: %0.1f %0.1f",p,q);
+          flag.push_back(p); flag.push_back(q); flag.push_back(dist); flag.push_back(dir);
+          flags.push_back(flag);
+	}
+    }
+    printf("\n"); 
+  }
+
+  if (flags.size()<2) return -1;
+  // find two closest flags (because have least error)
+  int a=0,b=0; // index of flag with min and max angles
+  for (int i=0 ; i<flags.size() ; i++)
+    if (flags[i][2]<flags[a][2]) a = i;
+  if (a==0) b = 1;
+  for (int i=0 ; i<flags.size() ; i++)
+    if (i!=a && flags[i][2]<flags[b][2]) b = i;
+  if (a==b) { printf("warning: can't triangulate position from one flag\n"); return -1; }
+
+  // transform so a is at (0,0) and b is on X-axis
+  // '1p' is single-prime, which means translated
+  // '2p' is double-prime, which means rotated
+  float xa=flags[a][0],ya=flags[a][1],xb=flags[b][0],yb=flags[b][1],ra=flags[a][2],rb=flags[b][2];
+  float dab=pow(xa-xb,2)+pow(ya-yb,2); if (dab<0) return -1; dab = sqrt(dab);
+  if (ra+rb<dab) { printf("warning: no intersection\n"); return -1; }
+  if (ra>dab+rb || rb>dab+ra) { printf("warning: no intersection - one circle contains the other\n"); return -1; }
+  float xb1p=xb-xa,yb1p=yb-ya; // one prime
+  float theta = atan2(yb1p,xb1p); // ang from a to b; could check for vertical (xb1p=0), but shouldn't occur
+  float xb2p=xb1p*cos(-theta)-yb1p*sin(-theta); // b2p should equal (dab,0)
+  float yb2p=xb1p*sin(-theta)+yb1p*cos(-theta);
+  float x02p=(pow(ra,2)-pow(rb,2)+pow(xb2p,2))/(2.*xb2p);
+  float y02p=pow(ra,2)-pow(x02p,2); if (y02p<0) return -1; y02p = sqrt(y02p); // second solution will be (x02p,-y02p)
+  float x0s1=xa+x02p*cos(theta)-y02p*sin(theta); // unrotate and untranslate to get first solution
+  float y0s1=ya+x02p*sin(theta)+y02p*cos(theta);
+  float x0s2=xa+x02p*cos(theta)+y02p*sin(theta); // unrotate and untranslate to get second solution
+  float y0s2=ya+x02p*sin(theta)-y02p*cos(theta);
+  float d1=(pow(x0s1,2)+pow(y0s1,2)),d2=(pow(x0s2,2)+pow(y0s2,2));
+  float x0=x0s1,y0=y0s1;
+  if (d2<d1) { x0=x0s2; y0=y0s2; } // choose whichever solution is closest to center of field
+  printf("estimate of player location: x=%0.1f y=%0.1f\n",x0,y0);
+  printf("based on flags at (%0.1f,%0.1f) and (%0.1f,%0.1f), dists=(%0.1f,%0.1f), dab=%0.1f, theta=%0.1f\n",xa,ya,xb,yb,ra,rb,dab,theta*180./PI);
+  *x = x0; *y = y0;
+
+  // compute the direction the player is facing, based on relative angle to closest object
+  float actang=atan2(ya-y0,xa-x0)*180./PI,relang=flags[a][3];
+  *dir = actang+relang; // object to left of center have negative angle
+  //printf("heading: actang=%0.1f, relang=%0.1f\n",actang,relang);
+  printf("heading: actang=%0.1f, relang=%0.1f\n",actang,relang);
+
+  return 0;
+}
+
+float abs(float X) { return (X>=0) ? X : -X; }
+
+float dist(float X1,float Y1,float X2,float Y2) { return sqrt(pow(X1-X2,2)+pow(Y1-Y2,2)); }
+
+//------------------------------------------------------------------------------
 
 class Client {
 private:
@@ -80,6 +263,9 @@ private:
     Client( const Client & );
     Client & operator=( const Client & );
 public:
+    float X,Y,Dir;
+    float tX,tY; // target
+
     Client( const std::string & server,
             const int port )
         : M_dest( port ),
@@ -233,7 +419,18 @@ private:
               M_clean_cycle = true;
           }
 
-          std::cout << std::string( msg, len - 1 ) << std::endl;
+          //std::cout << std::string( msg, len - 1 ) << std::endl;
+          std::cout << msg << std::endl;
+
+          Sexpr* expr=new Sexpr(tokenize((char*)msg),0);
+          float x,y,dir;
+          int stat=infer_player_loc(expr,&x,&y,&dir);
+          if (stat==0) 
+          {
+            printf("inferred player location: (%0.1f,%0.1f), dir=%0.1f\n",x,y,dir);
+            X = x; Y = y; Dir = dir; // update state variables
+          }
+          //delete expr;
       }
 
     void messageLoop()
@@ -254,6 +451,21 @@ private:
 #else
           int max_fd = M_socket.getFD() + 1;
 #endif
+
+          int cnt=0;
+          sprintf(buf,"(init Team1 (version 9))");
+          M_transport->write( buf, std::strlen( buf ) + 1 );
+          M_transport->flush();
+
+          sprintf(buf,"(move 0 0)");
+          M_transport->write( buf, std::strlen( buf ) + 1 );
+          M_transport->flush();
+
+          X = Y = 999;
+          float targets[] = {0,20 , 20,-10, -20,-10};
+          int ntargets=3,tid=0;
+          tX=targets[2*tid]; tY=targets[2*tid+1]; // set initial target
+	  
           while ( 1 )
           {
 
@@ -266,6 +478,35 @@ private:
               }
               else if ( ret != 0 )
               {
+                  buf[0] = 0;
+                  if (X!=999 && tX!=999)
+                  {
+                    if (dist(X,Y,tX,tY)<2.0) // reached target
+                    {
+                      tid = (tid+1)%ntargets;
+                      tX=targets[2*tid]; tY=targets[2*tid+1]; // set next target
+                    }
+                    else
+                    {
+                      float ang=atan2(tY-Y,tX-X)*180./PI;
+                      //if (abs(ang-Dir)>10) sprintf(buf,"(turn %d)",(int)(ang-Dir));
+                      float delta_ang=ang-Dir;
+                      if (delta_ang>=180) delta_ang -= 360;
+                      if (delta_ang<=-180) delta_ang += 360;
+                      if (delta_ang>10) sprintf(buf,"(turn -5)");
+                      else if (delta_ang<-10) sprintf(buf,"(turn 5)");
+                      else sprintf(buf,"(dash 50)");
+printf("target=(%0.1f,%0.1f), objang=%f selfdir=%f, delta=%f\n",tX,tY,ang,Dir,delta_ang);
+printf("command: %s\n",buf);
+                    }
+                  }
+                  size_t len = std::strlen( buf );
+                  if (len>0)
+                  {
+  		    M_transport->write( buf, len + 1 );
+                    M_transport->flush();
+                  }
+		  
                   // read from stdin
                   if ( FD_ISSET( in, &read_fds ) )
                   {
@@ -300,8 +541,7 @@ private:
                   {
                       rcss::net::Addr from;
                       int len = M_socket.recv( buf, sizeof( buf ) - 1, from );
-                      if ( len == -1
-                           && errno != EWOULDBLOCK )
+                      if ( len == -1 && errno != EWOULDBLOCK )
                       {
                           if ( errno != ECONNREFUSED )
                           {
