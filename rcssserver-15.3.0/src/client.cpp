@@ -186,6 +186,8 @@ private:
 public:
     float X,Y,Dir;
     float tX,tY; // target
+    float targets[10];
+    int ntargets,tid;
 
     Client( const std::string & server,
             const int port )
@@ -343,6 +345,7 @@ private:
           //std::cout << std::string( msg, len - 1 ) << std::endl;
           std::cout << msg << std::endl;
 
+          // TRI
           Sexpr* expr=new Sexpr(tokenize((char*)msg),0);
           float x,y,dir;
           int stat=infer_player_loc(expr,&x,&y,&dir);
@@ -353,6 +356,49 @@ private:
           }
           //delete expr;
       }
+
+    void player_initialization() // TRI
+    {
+      X = Y = 999;
+      targets[0]=0; targets[1]=20;
+      targets[2]=20; targets[3]=-10;
+      targets[4]=-20; targets[5]=-10;
+      ntargets = 3; tid = 0;
+      tX=targets[2*tid]; tY=targets[2*tid+1]; // set initial target
+    }
+
+    void decide_what_to_do() // TRI
+    {
+      char buf[8192];
+      buf[0] = 0;
+      if (X!=999 && tX!=999)
+      {
+        if (dist(X,Y,tX,tY)<2.0) // reached target
+        {
+          tid = (tid+1)%ntargets;
+          tX=targets[2*tid]; tY=targets[2*tid+1]; // set next target
+        }
+        else
+        {
+          float ang=atan2(tY-Y,tX-X)*180./PI;
+          //if (abs(ang-Dir)>10) sprintf(buf,"(turn %d)",(int)(ang-Dir));
+          float delta_ang=ang-Dir;
+          if (delta_ang>=180) delta_ang -= 360;
+          if (delta_ang<=-180) delta_ang += 360;
+          if (delta_ang>10) sprintf(buf,"(turn -5)");
+          else if (delta_ang<-10) sprintf(buf,"(turn 5)");
+          else sprintf(buf,"(dash 50)");
+printf("target=(%0.1f,%0.1f), objang=%f selfdir=%f, delta=%f\n",tX,tY,ang,Dir,delta_ang);
+printf("command: %s\n",buf);
+        }
+      }
+      size_t len = std::strlen( buf );
+      if (len>0)
+      {
+        M_transport->write( buf, len + 1 );
+        M_transport->flush();
+      }
+    }
 
     void messageLoop()
       {
@@ -382,11 +428,8 @@ private:
           M_transport->write( buf, std::strlen( buf ) + 1 );
           M_transport->flush();
 
-          X = Y = 999;
-          float targets[] = {0,20 , 20,-10, -20,-10};
-          int ntargets=3,tid=0;
-          tX=targets[2*tid]; tY=targets[2*tid+1]; // set initial target
-	  
+          player_initialization(); // TRI
+
           while ( 1 )
           {
 
@@ -399,34 +442,7 @@ private:
               }
               else if ( ret != 0 )
               {
-                  buf[0] = 0;
-                  if (X!=999 && tX!=999)
-                  {
-                    if (dist(X,Y,tX,tY)<2.0) // reached target
-                    {
-                      tid = (tid+1)%ntargets;
-                      tX=targets[2*tid]; tY=targets[2*tid+1]; // set next target
-                    }
-                    else
-                    {
-                      float ang=atan2(tY-Y,tX-X)*180./PI;
-                      //if (abs(ang-Dir)>10) sprintf(buf,"(turn %d)",(int)(ang-Dir));
-                      float delta_ang=ang-Dir;
-                      if (delta_ang>=180) delta_ang -= 360;
-                      if (delta_ang<=-180) delta_ang += 360;
-                      if (delta_ang>10) sprintf(buf,"(turn -5)");
-                      else if (delta_ang<-10) sprintf(buf,"(turn 5)");
-                      else sprintf(buf,"(dash 50)");
-printf("target=(%0.1f,%0.1f), objang=%f selfdir=%f, delta=%f\n",tX,tY,ang,Dir,delta_ang);
-printf("command: %s\n",buf);
-                    }
-                  }
-                  size_t len = std::strlen( buf );
-                  if (len>0)
-                  {
-  		    M_transport->write( buf, len + 1 );
-                    M_transport->flush();
-                  }
+  		  decide_what_to_do(); // TRI
 		  
                   // read from stdin
                   if ( FD_ISSET( in, &read_fds ) )
