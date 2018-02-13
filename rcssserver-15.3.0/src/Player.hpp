@@ -20,6 +20,8 @@ public:
   int infer_player_loc(Sexpr* expr,float* x,float* y,float* dir);
   void player_initialization();
   void decide_what_to_do();
+  //behaviours:
+  void kick_ball_to_goal();
   void run_trianglar_path();
 };
 

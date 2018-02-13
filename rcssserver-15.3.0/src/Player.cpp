@@ -171,12 +171,13 @@ void Player::player_initialization()
   }
 
 //void Player::decide_what_to_do() { run_triangular_path(); }
+void Player::decide_what_to_do() { kick_ball_to_goal(); }
 
 // behaviour: run to center, find soccer ball, kick it toward RGoal
 // stage 1: if not facing center, turn; else dash; if near center, stage->2
 // stage 2: turn around and look for ball, run to it; if near ball, kick toward RGoal; repeat!
 
-void Player::decide_what_to_do()
+void Player::kick_ball_to_goal()
 {
   char buf[8192];
   if (stage==1)
