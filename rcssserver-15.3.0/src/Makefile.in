@@ -155,7 +155,7 @@ librcssclangparser_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX \
 	$(LDFLAGS) -o $@
 PROGRAMS = $(bin_PROGRAMS)
 am_rcssclient_OBJECTS = client.$(OBJEXT)
-rcssclient_OBJECTS = $(am_rcssclient_OBJECTS)
+rcssclient_OBJECTS = $(am_rcssclient_OBJECTS) Sexpr.o Player.o
 am__DEPENDENCIES_1 =
 rcssclient_DEPENDENCIES = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
 rcssclient_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CXX $(AM_LIBTOOLFLAGS) \
@@ -314,7 +314,7 @@ CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
 CPP = @CPP@
-CPPFLAGS = @CPPFLAGS@
+CPPFLAGS = @CPPFLAGS@ -Wno-sign-compare -Wno-unused-variable -Wno-unused-parameter -std=c++11
 CXX = @CXX@
 CXXCPP = @CXXCPP@
 CXXDEPMODE = @CXXDEPMODE@
@@ -1280,3 +1280,8 @@ uninstall-am: uninstall-binPROGRAMS uninstall-binSCRIPTS \
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:
+
+Sexpr.o: Sexpr.cpp Sexpr.hpp
+	g++ -c Sexpr.cpp
+Player.o: Player.cpp Player.hpp
+	g++ -c Player.cpp
