@@ -318,7 +318,7 @@ main ( int argc, char **argv )
     }
 
     //client = new Client( server, port );
-    client = new Player( server, port );
+    client = new Player( server, port ); // TRI
     client->run();
 
     return EXIT_SUCCESS;

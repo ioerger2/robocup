@@ -7,27 +7,67 @@ float abs(float X) { return (X>=0) ? X : -X; }
 
 float dist(float X1,float Y1,float X2,float Y2) { return sqrt(pow(X1-X2,2)+pow(Y1-Y2,2)); }
 
+float angdiff(float A,float B)
+{
+  float D=A-B;
+  if (D>=180) D -= 360;
+  if (D<=-180) D += 360;
+  return D;
+}
+
+
 //------------------------------------------------------------------------------
 
 Player::Player( const std::string & server, const int port ) : Client(server,port) {}
  
 void Player::parseMsg( const char * msg, const size_t len )
+{
+  Client::parseMsg(msg,len); // let parent class do its work
+
+  Sexpr* expr=new Sexpr(tokenize((char*)msg),0);
+  float x,y,dir;
+  int stat=infer_player_loc(expr,&x,&y,&dir);
+
+  if (stat==0) 
   {
-    Client::parseMsg(msg,len); // let parent class do its work
-
-    Sexpr* expr=new Sexpr(tokenize((char*)msg),0);
-    float x,y,dir;
-    int stat=infer_player_loc(expr,&x,&y,&dir);
-
-    if (stat==0) 
-    {
-      printf("inferred player location: (%0.1f,%0.1f), dir=%0.1f\n",x,y,dir);
-      X = x; Y = y; Dir = dir; // update state variables
-    }
-
-   //delete expr;
+    printf("inferred player location: (%0.1f,%0.1f), dir=%0.1f\n",x,y,dir);
+    X = x; Y = y; Hdg = dir; // update state variables
   }
 
+  update_ball_location(expr);
+
+  //delete expr;
+}
+
+void Player::update_ball_location(Sexpr* expr)
+{
+  if (strcmp(expr->children[0]->leaf,"see")!=0) return;
+  ballX = ballY = 999; // unknown, update only if I see it
+  // maybe I should try to remember the last place I saw it...
+
+  // loop through objects
+  for (int i=2 ; i<expr->children.size() ; i++) 
+  {
+    Sexpr* obj=expr->children[i]->children[0];
+    if (obj->children.size()==1 && obj->children[0]->leaf[0]=='b')
+    {
+      float dist=atof(expr->children[i]->children[1]->leaf);
+      float relang=atof(expr->children[i]->children[2]->leaf);
+      float actang=Hdg-relang; // I am not sure this is correct...
+      if (actang>=180) actang -= 360;
+      if (actang<=-180) actang += 360;
+printf("directions: %f %f %f\n",Hdg,relang,actang);
+      ballX = X+dist*cos(actang);
+      ballY = Y+dist*sin(actang);
+      ballRelDist = dist;
+      ballRelDir = relang;
+printf("updating ball location: (%0.1f,%0.1f), dist=%0.1f, reldir=%0.1f\n",ballX,ballY,ballRelDir,ballRelDir);
+    }
+  }
+}
+
+// fills in vals for x,y,dir; returns -1 if fails for any reason
+  
 int Player::infer_player_loc(Sexpr* expr,float* x,float* y,float* dir) // add verbose flag?
     {
       if (strcmp(expr->children[0]->leaf,"see")!=0) return -1;
@@ -120,16 +160,61 @@ int Player::infer_player_loc(Sexpr* expr,float* x,float* y,float* dir) // add ve
 void Player::player_initialization()
   {
     X = Y = 999;
+    // for run_triangular_path()
     targets[0]=0; targets[1]=20;
     targets[2]=20; targets[3]=-10;
     targets[4]=-20; targets[5]=-10;
     ntargets = 3; tid = 0;
     tX=targets[2*tid]; tY=targets[2*tid+1]; // set initial target
+
+    stage = 1;
   }
 
-  // fills in vals for x,y,dir; returns -1 if fails for any reason
-  
+//void Player::decide_what_to_do() { run_triangular_path(); }
+
+// behaviour: run to center, find soccer ball, kick it toward RGoal
+// stage 1: if not facing center, turn; else dash; if near center, stage->2
+// stage 2: turn around and look for ball, run to it; if near ball, kick toward RGoal; repeat!
+
 void Player::decide_what_to_do()
+{
+  char buf[8192];
+  if (stage==1)
+  {
+    if (dist(X,Y,0,0)<1) { stage = 2; return; } // also, could goto stage 2 early if see ball
+    float ang=atan2(0-Y,0-X)*180./PI;
+    float delta_ang=angdiff(ang,Hdg);
+    if (delta_ang>10) sprintf(buf,"(turn -5)");
+    else if (delta_ang<-10) sprintf(buf,"(turn 5)");
+    else sprintf(buf,"(dash 50)");
+  }  
+  else if (stage==2)
+  {
+    if (ballX==999) sprintf(buf,"(turn -5)");
+    else
+    {
+      float RGoalX=60,RGoalY=0; // maybe it should be (55,0)
+      float RGoalDir=atan2(RGoalY-Y,RGoalX-X)*180./PI;  
+      float kickDir = angdiff(Hdg,RGoalDir); // relative to direction player is facing
+      if (ballRelDist<0.7) sprintf(buf,"(kick 25 %f)",kickDir); 
+      else
+      {
+        if (ballRelDir>10) sprintf(buf,"(turn 5)");
+        else if (ballRelDir<-10) sprintf(buf,"(turn -5)");
+        else sprintf(buf,"(dash 40)");
+      }
+    }
+  }
+  size_t len = std::strlen( buf );
+  if (len>0)
+  {
+    printf("command: %s\n",buf);
+    M_transport->write( buf, len + 1 );
+    M_transport->flush();
+  }
+}
+
+void Player::run_trianglar_path()
   {
     char buf[8192];
     buf[0] = 0;
@@ -143,14 +228,11 @@ void Player::decide_what_to_do()
       else
       {
         float ang=atan2(tY-Y,tX-X)*180./PI;
-        //if (abs(ang-Dir)>10) sprintf(buf,"(turn %d)",(int)(ang-Dir));
-        float delta_ang=ang-Dir;
-        if (delta_ang>=180) delta_ang -= 360;
-        if (delta_ang<=-180) delta_ang += 360;
+        float delta_ang=angdiff(ang,Hdg);
         if (delta_ang>10) sprintf(buf,"(turn -5)");
         else if (delta_ang<-10) sprintf(buf,"(turn 5)");
         else sprintf(buf,"(dash 50)");
-printf("target=(%0.1f,%0.1f), objang=%f selfdir=%f, delta=%f\n",tX,tY,ang,Dir,delta_ang);
+printf("target=(%0.1f,%0.1f), objang=%f selfdir=%f, delta=%f\n",tX,tY,ang,Hdg,delta_ang);
 printf("command: %s\n",buf);
       }
     }
