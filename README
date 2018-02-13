@@ -1,0 +1,27 @@
+2/11/18
+-------
+
+this repository was initialized with rcssserver-15.3.0.tar.gz
+  downloaded from https://sourceforge.net/projects/sserver/files/rcssserver/
+
+here are some things you might need to do to get it to compile...
+(obviously, replace pathname in the configure command with your local path))
+
+> sudo apt-get install libboost-all-dev
+> sudo apt-get install flex bison 
+> cd rcssserver-15.3.0/
+> ./configure --prefix=/home/ioerger/robocup/rcssserver-15.3.0/ 
+> make
+
+hereafter, you only have to run 'make' in src/
+
+
+If you compile this project, you shouldn's need to install the server,
+etc, separately.  However, just for posterity, here are the commands
+to install the server (pre-compiled) with apt-get...
+
+> sudo add-apt-repository ppa:gnurubuntu/rubuntu && sudo apt-get update
+> sudo apt-get install rcssserver
+> sudo apt-get install rcssmonitor
+> sudo apt-get install rcsslogplayer
+
