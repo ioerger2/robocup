@@ -19,6 +19,8 @@
  *                                                                         *
  ***************************************************************************/
 
+#define CLIENT_HPP
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -61,9 +63,6 @@
 #include <sys/types.h> // select()
 #endif
 
-#include "Sexpr.hpp"
-
-
 class Client {
 //private:
 public:
@@ -92,7 +91,6 @@ public:
     int setCompression( int level );
     void processMsg( const char * msg, const size_t len );
     virtual void parseMsg( const char * msg, const size_t len );
-    int infer_player_loc(Sexpr* expr,float* x,float* y,float* dir); // TRI
     virtual void player_initialization(); // TRI
     virtual void decide_what_to_do(); // TRI
     void messageLoop();
